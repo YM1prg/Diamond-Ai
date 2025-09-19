@@ -58,7 +58,7 @@ function App() {
 useEffect(() => {
   const loadModel = async () => {
     try {
-      const response = await fetch('/svm_diamonds_pipeline.onnx');
+      const response = await fetch('../svm_diamonds_pipeline.onnx');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
