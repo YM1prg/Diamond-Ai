@@ -111,7 +111,7 @@ function App() {
       const inputTensor = new ort.Tensor('float32', features, [1, 7]);
 
       // Load session and run inference
-      const session = await ort.InferenceSession.create('/svm_diamonds_pipeline.onnx');
+      const session = await ort.InferenceSession.create('./svm_diamonds_pipeline.onnx');
       const feeds = { 'float_input': inputTensor }; // ← Match your ONNX input name!
       const results = await session.run(feeds);
 
