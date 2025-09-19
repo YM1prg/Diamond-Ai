@@ -1,0 +1,17 @@
+{
+    "model_name": "Diamond Price Predictor (SVM)",
+    "input_features": [
+        "carat",
+        "cut",
+        "color",
+        "clarity",
+        "depth",
+        "table",
+        "Volume"
+    ],
+    "target": "price_log",
+    "note": "Output is log(price). Use np.expm1() to get original price in USD.",
+    "scaler_used": "MinMaxScaler",
+    "exported_by": "Diamonds Project Pipeline",
+    "version": "1.0"
+}
