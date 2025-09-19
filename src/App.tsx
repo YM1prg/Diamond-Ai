@@ -55,19 +55,27 @@ function App() {
   const clarities = Object.keys(clarityMap);
 
   // Load ONNX model on mount
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        await ort.InferenceSession.create('/svm_diamonds_web.onnx');
-        setModelLoaded(true);
-        console.log("✅ ONNX model loaded successfully");
-      } catch (e) {
-        console.error("❌ Failed to load ONNX model:", e);
-        alert("Failed to load AI model. Check console for details.");
+useEffect(() => {
+  const loadModel = async () => {
+    try {
+      const response = await fetch('/svm_diamonds_pipeline.onnx');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    };
-    loadModel();
-  }, []);
+
+      const buffer = await response.arrayBuffer();
+      const session = await ort.InferenceSession.create(buffer);
+      setSession(session);
+      setModelLoaded(true);
+      console.log("✅ ONNX model loaded successfully");
+    } catch (error) {
+      console.error("❌ Failed to load ONNX model:", error);
+      alert("Failed to load AI model. Check console for details.");
+    }
+  };
+
+  loadModel();
+}, []);
 
   const handleInputChange = (field: keyof DiamondSpecs, value: string | number) => {
     setSpecs(prev => ({ ...prev, [field]: value }));
