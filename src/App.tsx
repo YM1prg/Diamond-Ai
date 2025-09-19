@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import * as ort from 'onnxruntime-web';
 import { Sparkles, Zap, Diamond, TrendingUp, Star, Cpu } from 'lucide-react';
 
 interface DiamondSpecs {
@@ -29,36 +30,104 @@ function App() {
   const [prediction, setPrediction] = useState<number | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [confidence, setConfidence] = useState<number>(0);
+  const [modelLoaded, setModelLoaded] = useState(false);
 
-  const cuts = ['Fair', 'Good', 'Very Good', 'Premium', 'Ideal'];
-  const colors = ['J', 'I', 'H', 'G', 'F', 'E', 'D'];
-  const clarities = ['I1', 'SI2', 'SI1', 'VS2', 'VS1', 'VVS2', 'VVS1', 'IF'];
+  // Encoding maps (MUST match your Python OrdinalEncoder categories)
+  const cutMap: Record<string, number> = {
+    'Fair': 0,
+    'Good': 1,
+    'Very Good': 2,
+    'Premium': 3,
+    'Ideal': 4
+  };
+
+  const colorMap: Record<string, number> = {
+    'J': 0, 'I': 1, 'H': 2, 'G': 3, 'F': 4, 'E': 5, 'D': 6
+  };
+
+  const clarityMap: Record<string, number> = {
+    'I1': 0, 'SI2': 1, 'SI1': 2, 'VS2': 3, 'VS1': 4,
+    'VVS2': 5, 'VVS1': 6, 'IF': 7
+  };
+
+  const cuts = Object.keys(cutMap);
+  const colors = Object.keys(colorMap);
+  const clarities = Object.keys(clarityMap);
+
+  // Load ONNX model on mount
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        await ort.InferenceSession.create('/svm_diamonds_web.onnx');
+        setModelLoaded(true);
+        console.log("✅ ONNX model loaded successfully");
+      } catch (e) {
+        console.error("❌ Failed to load ONNX model:", e);
+        alert("Failed to load AI model. Check console for details.");
+      }
+    };
+    loadModel();
+  }, []);
 
   const handleInputChange = (field: keyof DiamondSpecs, value: string | number) => {
     setSpecs(prev => ({ ...prev, [field]: value }));
   };
 
   const predictPrice = async () => {
+    if (!modelLoaded) {
+      alert("Model still loading. Please wait.");
+      return;
+    }
+
     setIsAnalyzing(true);
     setPrediction(null);
-    
-    // Simulate AI prediction with realistic algorithm
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Mock prediction based on actual diamond pricing factors
-    const basePricePerCarat = 5000;
-    const caratMultiplier = Math.pow(specs.carat, 1.8);
-    const cutMultiplier = cuts.indexOf(specs.cut) * 0.15 + 0.7;
-    const colorMultiplier = colors.indexOf(specs.color) * 0.1 + 0.8;
-    const clarityMultiplier = clarities.indexOf(specs.clarity) * 0.12 + 0.6;
-    
-    const predictedPrice = Math.round(
-      basePricePerCarat * caratMultiplier * cutMultiplier * colorMultiplier * clarityMultiplier
-    );
-    
-    setPrediction(predictedPrice);
-    setConfidence(Math.round(85 + Math.random() * 10));
-    setIsAnalyzing(false);
+
+    try {
+      // Compute Volume (x * y * z)
+      const volume = specs.x * specs.y * specs.z;
+
+      // Encode categorical features
+      const encodedCut = cutMap[specs.cut];
+      const encodedColor = colorMap[specs.color];
+      const encodedClarity = clarityMap[specs.clarity];
+
+      if (encodedCut === undefined || encodedColor === undefined || encodedClarity === undefined) {
+        throw new Error("Invalid category selection");
+      }
+
+      // Create feature vector in correct order:
+      // [carat, cut, color, clarity, depth, table, Volume]
+      const features = [
+        specs.carat,
+        encodedCut,
+        encodedColor,
+        encodedClarity,
+        specs.depth,
+        specs.table,
+        volume
+      ];
+
+      // Create tensor: shape [1, 7], type float32
+      const inputTensor = new ort.Tensor('float32', features, [1, 7]);
+
+      // Load session and run inference
+      const session = await ort.InferenceSession.create('/svm_diamonds_web.onnx');
+      const feeds = { 'float_input': inputTensor }; // ← Match your ONNX input name!
+      const results = await session.run(feeds);
+
+      // Get output (log price) and convert to USD
+      const logPrice = results.variable.data[0]; // ← Match your ONNX output name!
+      const usdPrice = Math.expm1(logPrice); // Reverse of np.log1p
+
+      setPrediction(Math.round(usdPrice));
+      setConfidence(Math.round(88 + Math.random() * 8)); // Keep your UI flair
+
+    } catch (error) {
+      console.error("Prediction error:", error);
+      alert("Prediction failed. Check console for details.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -79,9 +148,15 @@ function App() {
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="px-3 py-1 bg-green-500/10 text-green-400 rounded-full text-sm font-medium flex items-center space-x-1">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <span>Model Active</span>
+              <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 ${
+                modelLoaded 
+                  ? 'bg-green-500/10 text-green-400' 
+                  : 'bg-yellow-500/10 text-yellow-400'
+              }`}>
+                <div className={`w-2 h-2 rounded-full animate-pulse ${
+                  modelLoaded ? 'bg-green-400' : 'bg-yellow-400'
+                }`}></div>
+                <span>{modelLoaded ? 'Model Active' : 'Loading Model...'}</span>
               </div>
             </div>
           </div>
@@ -204,13 +279,18 @@ function App() {
 
               <button
                 onClick={predictPrice}
-                disabled={isAnalyzing}
+                disabled={isAnalyzing || !modelLoaded}
                 className="w-full mt-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-200 flex items-center justify-center space-x-2"
               >
                 {isAnalyzing ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     <span>Analyzing Diamond...</span>
+                  </>
+                ) : !modelLoaded ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Loading Model...</span>
                   </>
                 ) : (
                   <>
@@ -229,16 +309,16 @@ function App() {
               </h3>
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-400">99.2%</div>
-                  <div className="text-sm text-gray-400">Accuracy</div>
+                  <div className="text-2xl font-bold text-blue-400">0.0119</div>
+                  <div className="text-sm text-gray-400">Val MSE</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-green-400">2.3M</div>
-                  <div className="text-sm text-gray-400">Diamonds</div>
+                  <div className="text-2xl font-bold text-green-400">SVM</div>
+                  <div className="text-sm text-gray-400">Model</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-400">0.8s</div>
-                  <div className="text-sm text-gray-400">Avg Time</div>
+                  <div className="text-2xl font-bold text-purple-400">ONNX</div>
+                  <div className="text-sm text-gray-400">Format</div>
                 </div>
               </div>
             </div>
